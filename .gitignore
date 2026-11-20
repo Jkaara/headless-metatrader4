@@ -1,0 +1,4 @@
+backtest/data/
+test/ea.inc
+test/ea_test
+test/replay.csv

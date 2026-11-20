@@ -9,6 +9,7 @@
     - [VNC server](#vnc-server)
     - [X Window System of the host](#x-window-system-of-the-host)
   - [Extending the image](#extending-the-image)
+  - [TrendLeverage EA](#trendleverage-ea)
   - [Known issues](#known-issues)
   - [Troubleshooting](#troubleshooting)
 
@@ -113,6 +114,44 @@ But if the host is a hosted server you should be done additional work before run
 You can make your own `Dockerfile` inherited from this image and copy a particular distribution of MetaTrader 4 Terminal to an image on build phase. For this task, env variables `$USER` and `$MT4DIR` are acceptable.
 
 You can make an archive with the content from section "Prepare distribution with MetaTrader 4" by an appropriate tool. E.g. `cd mt4-distro; tar cfj ../mt4.tar.bz2 *`. Make sure that no root directory exists in the archive. Then you can extract the archive into the image by instruction `ADD mt4.tar.bz2 $MT4DIR`.
+
+## TrendLeverage EA
+
+`MQL4/Experts/TrendLeverage.mq4` is a small EA for index CFDs such as US500 or NAS100. Once per D1 bar it compares the last daily close with its 200-day SMA: above it, the EA holds a long position worth `Leverage` times the account equity (2 by default) and rebalances when leverage drifts more than 10 % off target; below it, the EA is flat. `Leverage` counts per chart, so two charts with 2 give 4 in total.
+
+To use it, copy the file to `MQL4/Experts/` of the terminal, compile it in MetaEditor and set `Expert=TrendLeverage` in `startup.ini` (drop `ExpertParameters` or point it to your own preset).
+
+**The EA has not been compiled or run in MetaTrader yet.** `test/run.sh` builds the real source against stubs of the MT4 API with g++ and checks the logic, and replays 41 years of Nasdaq-100 closes through it to confirm it matches the backtest. Test it in the Strategy Tester and on a demo account before it trades money. It sets no server-side stop loss, so a position stays open while the terminal is offline.
+
+### Backtest
+
+`backtest/backtest.py` runs the same rules on daily closes. It needs `pandas`, `pyarrow` and three public data repositories, which are not redistributed here:
+
+```bash
+cd backtest && mkdir data && cd data
+git clone --depth 1 https://github.com/SteelCerberus/us-market-data
+git clone --depth 1 https://github.com/ChengYan7/stock
+git clone --depth 1 --branch data https://github.com/sungholee0221-ops/us-market-data us-market-data-2y
+cd .. && python3 backtest.py
+```
+
+Return per year / deepest drawdown, data up to 2026-11-18, defaults (SMA 200, leverage 2):
+
+| S&P 500 | since 1928 | since 2000 | since 2010 | last 10 years | last 5 years |
+| --- | --- | --- | --- | --- | --- |
+| Buy and hold | 9.9 % / -84 % | 8.1 % / -55 % | 13.6 % / -34 % | 14.6 % / -34 % | 10.7 % / -24 % |
+| EA, typical cash CFD | 8.2 % / -79 % | 3.5 % / -52 % | 7.5 % / -43 % | 8.5 % / -43 % | 2.1 % / -40 % |
+| EA, cheap financing | 15.0 % / -77 % | 8.7 % / -42 % | 12.9 % / -36 % | 15.0 % / -36 % | 8.9 % / -36 % |
+
+| Nasdaq-100 | since 1986 | since 2000 | since 2010 | last 10 years | last 5 years |
+| --- | --- | --- | --- | --- | --- |
+| Buy and hold | 13.8 % / -83 % | 7.6 % / -83 % | 17.1 % / -36 % | 18.9 % / -36 % | 10.5 % / -36 % |
+| EA, typical cash CFD | 9.4 % / -88 % | 4.0 % / -88 % | 14.1 % / -41 % | 19.9 % / -41 % | 6.6 % / -40 % |
+| EA, cheap financing | 16.1 % / -85 % | 8.8 % / -85 % | 19.4 % / -40 % | 27.0 % / -40 % | 13.9 % / -39 % |
+
+"Typical cash CFD" pays the T-bill rate plus 2.5 % a year on the position value and earns nothing on the account's cash. That is the usual swap formula for cash index CFDs; Pepperstone, for example, charges 2.5 %. "Cheap financing" pays the T-bill rate plus 0.5 % and earns the T-bill rate on cash, which is roughly what index futures cost.
+
+Read this as: **with typical CFD swaps the EA has done worse than simply holding the index, and what edge it shows with cheap financing comes from leverage, with drawdowns as deep as the index's own.** Results for a single decade also move by several points with the SMA length. Check your broker's long swap on the index before using it. Taxes are not modelled, and the Nasdaq-100 rows ignore dividends on both sides.
 
 ## Known issues
 
