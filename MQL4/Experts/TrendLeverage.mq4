@@ -11,7 +11,8 @@
 
 // shortcut: no server-side stop loss, the position stays open while the terminal is offline; add one before running this anywhere that is not always on.
 
-#define VOL_DAYS 20                // daily changes in the volatility estimate
+// Daily changes in the volatility estimate.
+#define VOL_DAYS 20
 
 input int    SmaPeriod = 200;      // Trend filter: SMA length in D1 bars
 input double Leverage  = 2.0;      // Target leverage of this chart (position value / account equity)
