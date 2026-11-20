@@ -57,6 +57,8 @@ double NormalizeDouble(double v, int digits) { double p = std::pow(10, digits); 
 double MathFloor(double v) { return std::floor(v); }
 double MathMin(double a, double b) { return a < b ? a : b; }
 double MathAbs(double v) { return std::fabs(v); }
+double MathMax(double a, double b) { return a > b ? a : b; }
+double MathSqrt(double v) { return std::sqrt(v); }
 template <class... A> void Print(A...) {}
 template <class... A> void Comment(A...) {}
 
@@ -147,32 +149,45 @@ static void bar(double financing = 0, int ticks = 1) {
   day++;
 }
 
+// What the EA's target leverage should be on the current bar, worked out separately from the EA's own formula.
+static double targetLeverage() {
+  double changes[VOL_DAYS], average = 0, squares = 0;
+  for (int i = 0; i < VOL_DAYS; i++) average += (changes[i] = closes[day - 1 - i] / closes[day - 2 - i] - 1) / VOL_DAYS;
+  for (double c : changes) squares += (c - average) * (c - average);
+  double volatility = std::sqrt(squares / (VOL_DAYS - 1) * 252);
+  return volatility > VolLimit ? Leverage * VolLimit / volatility : Leverage;
+}
+
 static void selftest() {
   closes.assign(200, 100.0);                                  // flat: no trend
-  for (int i = 1; i <= 60; i++) closes.push_back(100 + i);   // rally above the SMA
-  for (int i = 1; i <= 80; i++) closes.push_back(160 - i);   // slide back below it
+  for (int i = 1; i <= 60; i++) closes.push_back(100 + i);   // calm rally above the SMA
+  for (int i = 0; i < 30; i++) closes.push_back(closes.back() * (i % 2 ? 0.97 : 1.05));   // still rising, in wild swings
+  for (int i = 1; i <= 120; i++) closes.push_back(closes.back() - 1);                      // slide back below the SMA
   equity = 100000; maxLot = 1000;
   orders = {{++tickets, 5.0, 1}};                             // somebody else's position on the symbol
   assert(OnInit() == INIT_SUCCEEDED);
 
-  int rebalancedUp = 0, rebalancedDown = 0;
+  int rebalancedUp = 0, rebalancedDown = 0, scaledDown = 0;
   for (day = 1; day < (int)closes.size();) {
     bool entry = day == 201;                                  // first close above the SMA
     if (entry) failNext = 1;                                  // the first order fails, the EA has to retry
     double before = eaLots();
     bool trendUp = day >= SmaPeriod && closes[day - 1] > mean(SmaPeriod, 1);
+    double target = trendUp ? targetLeverage() : 0;
     bool exit = before > 0 && !trendUp;                       // first close below the SMA
     if (exit) dropNext = 1;                                   // the first close request is lost, the EA has to retry
     bar(0, entry || exit ? 2 : 1);
     double lots = eaLots();
     assert((lots > 0) == trendUp);                            // position follows the signal on every bar
-    if (trendUp) assert(leverage > Leverage * (1 - Band) - 0.01 && leverage < Leverage * (1 + Band) + 0.01);
+    if (trendUp) assert(leverage > target * (1 - Band) - 0.01 && leverage < target * (1 + Band) + 0.01);
     // 1000 + 980.19 lots after one refused request; a netting account holds them as one position
     if (entry) assert(std::fabs(lots - 1980.19) < 1e-6 && sends == 3 && orders.size() == (netting ? 1u : 3u));
     if (before > 0 && lots > before) rebalancedUp++;
     if (lots > 0 && lots < before) rebalancedDown++;
+    if (trendUp && target < Leverage / 2) scaledDown++;
   }
   assert(rebalancedUp > 0 && rebalancedDown > 0);             // both directions of the band were exercised
+  assert(scaledDown > 0);                                     // and so was the volatility limit
   // Separate positions: the foreign one is untouched. Netting: it was the symbol's position, so the EA closed it when flat.
   if (netting) assert(orders.empty());
   else assert(orders.size() == 1 && orders[0].magic == 1 && orders[0].lots == 5.0);

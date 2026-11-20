@@ -18,6 +18,7 @@ SCENARIOS = {
     "EA, cheap financing (T-bill + 0.5 %, cash earns T-bill)": (0.005, 1.0),
 }
 COST = 0.0002  # spread and slippage per traded position value
+VOL_DAYS = 20  # daily changes in the volatility estimate, as in the EAs
 
 
 def load(data):
@@ -41,16 +42,20 @@ def load(data):
     return out
 
 
-def run(d, sma, lev, band, markup, cash, cost=COST):
-    """Equity curve of the EA's rules: target leverage `lev` while the previous close is above its SMA, else flat."""
-    long = (d.px > d.px.rolling(sma).mean()).shift(1, fill_value=False).to_numpy()
+def run(d, sma, lev, band, vol_limit, markup, cash, cost=COST):
+    """Equity curve of the EA's rules: long while the previous close is above its SMA, else flat.
+    The target leverage is `lev`, scaled by vol_limit / volatility while the annualised volatility of the last
+    VOL_DAYS daily price changes is above vol_limit (0 switches that off)."""
+    vol = d.px.pct_change().rolling(VOL_DAYS).std() * 252**0.5
+    scale = (vol_limit / vol).clip(upper=1).fillna(1) if vol_limit else 1
+    target = ((d.px > d.px.rolling(sma).mean()) * lev * scale).shift(1, fill_value=0).to_numpy()
     days = d.index.to_series().diff().dt.days.fillna(1).to_numpy()
     eq, e, n = np.zeros(len(d)), 1.0, 0.0  # e = equity, n = position value
     for t, (r, f) in enumerate(zip(d.ret.to_numpy(), d.rf.to_numpy())):
-        target = lev * e if long[t] else 0.0
-        if n != target and (target == 0 or n == 0 or abs(n / e - lev) > band * lev):  # same rule as the EA
-            e -= cost * abs(target - n)
-            n = target
+        want = target[t] * e
+        if n != want and (want == 0 or n == 0 or abs(n / e - target[t]) > band * target[t]):  # same rule as the EA
+            e -= cost * abs(want - n)
+            n = want
         e = e * (1 + cash * f * days[t] / 360) + n * (r - (f + markup) * days[t] / 360)
         if e <= 0:  # wiped out, the curve stays at 0
             break
@@ -70,6 +75,7 @@ def main():
     p.add_argument("--sma", type=int, default=200, help="EA input SmaPeriod")
     p.add_argument("--leverage", type=float, default=2.0, help="EA input Leverage")
     p.add_argument("--band", type=float, default=0.10, help="EA input Band")
+    p.add_argument("--vol-limit", type=float, default=0.20, help="EA input VolLimit, 0 = off")
     p.add_argument("--dump", help="for test/run.sh: write a replay file for the real EA and print the result it must reach")
     args = p.parse_args()
     data = load(args.data)
@@ -78,13 +84,13 @@ def main():
         d, (markup, cash) = data["Nasdaq-100"], next(iter(SCENARIOS.values()))
         days = d.index.to_series().diff().dt.days.fillna(1)
         pd.DataFrame({"close": d.px, "fin": (d.rf + markup) * days / 360}).to_csv(args.dump, index=False, header=False)
-        print(run(d, args.sma, args.leverage, args.band, markup, cash, cost=0).iloc[-1])
+        print(run(d, args.sma, args.leverage, args.band, args.vol_limit, markup, cash, cost=0).iloc[-1])
         return
 
     for name, d in data.items():
         curves = {"Buy and hold": (1 + d.ret).cumprod()}
         for label, (markup, cash) in SCENARIOS.items():
-            curves[label] = run(d, args.sma, args.leverage, args.band, markup, cash)
+            curves[label] = run(d, args.sma, args.leverage, args.band, args.vol_limit, markup, cash)
         end = d.index[-1]
         periods = {"all": d.index[args.sma], "since 2000": "2000", "since 2010": "2010",
                    "last 10 years": end - pd.DateOffset(years=10), "last 5 years": end - pd.DateOffset(years=5)}

@@ -119,6 +119,8 @@ You can make an archive with the content from section "Prepare distribution with
 
 `MQL4/Experts/TrendLeverage.mq4` is a small EA for index CFDs such as US500 or NAS100, and `MQL5/Experts/TrendLeverage.mq5` is the same EA for MetaTrader 5. Once per D1 bar it compares the last daily close with its 200-day SMA: above it, the EA holds a long position worth `Leverage` times the account equity (2 by default) and rebalances when leverage drifts more than 10 % off target; below it, the EA is flat. `Leverage` counts per chart, so two charts with 2 give 4 in total.
 
+While the market is volatile the EA holds less: it measures the annualised volatility of the last 20 daily changes, and above `VolLimit` (20 % by default, 0 switches this off) the target leverage is multiplied by `VolLimit` / volatility. At 40 % volatility it holds half the position.
+
 To use it, copy the file to `MQL4/Experts/` (MT5: `MQL5/Experts/`) of the terminal and compile it in MetaEditor. For the MT4 container of this repository, also set `Expert=TrendLeverage` in `startup.ini` (drop `ExpertParameters` or point it to your own preset). The image starts the 32-bit MT4 terminal only, so the MT5 version needs a terminal of its own.
 
 An MT5 netting account keeps a single position per symbol. There the MT5 version manages everything on its symbol, including a position you opened by hand, so give it a symbol of its own. On hedging accounts, as in MT4, it touches only the positions carrying its magic number.
@@ -137,23 +139,25 @@ git clone --depth 1 --branch data https://github.com/sungholee0221-ops/us-market
 cd .. && python3 backtest.py
 ```
 
-Return per year / deepest drawdown, data up to 2026-11-18, defaults (SMA 200, leverage 2):
+Return per year / deepest drawdown, data up to 2026-11-18, defaults (SMA 200, leverage 2, volatility limit 20 %):
 
 | S&P 500 | since 1928 | since 2000 | since 2010 | last 10 years | last 5 years |
 | --- | --- | --- | --- | --- | --- |
 | Buy and hold | 9.9 % / -84 % | 8.1 % / -55 % | 13.6 % / -34 % | 14.6 % / -34 % | 10.7 % / -24 % |
-| EA, typical cash CFD | 8.2 % / -79 % | 3.5 % / -52 % | 7.5 % / -43 % | 8.5 % / -43 % | 2.1 % / -40 % |
-| EA, cheap financing | 15.0 % / -77 % | 8.7 % / -42 % | 12.9 % / -36 % | 15.0 % / -36 % | 8.9 % / -36 % |
+| EA, typical cash CFD | 8.5 % / -59 % | 4.3 % / -48 % | 8.3 % / -42 % | 8.6 % / -42 % | 2.5 % / -38 % |
+| EA, cheap financing | 15.1 % / -57 % | 9.3 % / -39 % | 13.5 % / -36 % | 14.7 % / -36 % | 9.2 % / -36 % |
 
 | Nasdaq-100 | since 1986 | since 2000 | since 2010 | last 10 years | last 5 years |
 | --- | --- | --- | --- | --- | --- |
 | Buy and hold | 13.8 % / -83 % | 7.6 % / -83 % | 17.1 % / -36 % | 18.9 % / -36 % | 10.5 % / -36 % |
-| EA, typical cash CFD | 9.4 % / -88 % | 4.0 % / -88 % | 14.1 % / -41 % | 19.9 % / -41 % | 6.6 % / -40 % |
-| EA, cheap financing | 16.1 % / -85 % | 8.8 % / -85 % | 19.4 % / -40 % | 27.0 % / -40 % | 13.9 % / -39 % |
+| EA, typical cash CFD | 9.7 % / -65 % | 6.9 % / -65 % | 14.0 % / -34 % | 18.7 % / -34 % | 7.2 % / -34 % |
+| EA, cheap financing | 16.1 % / -54 % | 11.7 % / -54 % | 19.1 % / -32 % | 25.4 % / -32 % | 14.2 % / -32 % |
 
 "Typical cash CFD" pays the T-bill rate plus 2.5 % a year on the position value and earns nothing on the account's cash. That is the usual swap formula for cash index CFDs; Pepperstone, for example, charges 2.5 %. "Cheap financing" pays the T-bill rate plus 0.5 % and earns the T-bill rate on cash, which is roughly what index futures cost.
 
-Read this as: **with typical CFD swaps the EA has done worse than simply holding the index, and what edge it shows with cheap financing comes from leverage, with drawdowns as deep as the index's own.** Results for a single decade also move by several points with the SMA length. Check your broker's long swap on the index before using it. Taxes are not modelled, and the Nasdaq-100 rows ignore dividends on both sides.
+Read this as: **with typical CFD swaps the EA has done worse than simply holding the index, and what edge it shows with cheap financing comes from leverage.** Check your broker's long swap on the index before using it. Taxes are not modelled, and the Nasdaq-100 rows ignore dividends on both sides.
+
+The volatility limit adds no return. It cut the deepest drawdowns at about the same return: without it (`--vol-limit 0`) they were -77 % on the S&P 500 and -85 % on the Nasdaq-100 with cheap financing. Every volatility window from 10 to 60 days and every limit from 15 % to 30 % that was tried reduced the deepest drawdown; only the tightest limit also cost about two points of return a year on the Nasdaq-100. Other SMA lengths and entry buffers around the SMA did not improve return per unit of risk beyond noise, and more leverage raised return and drawdown together. Results for a single decade move by several points with the SMA length, so tuning these inputs to the past is not expected to help.
 
 ## Known issues
 

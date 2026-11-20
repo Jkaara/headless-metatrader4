@@ -2,17 +2,21 @@
 //|                                                TrendLeverage.mq5 |
 //| MetaTrader 5 version of MQL4/Experts/TrendLeverage.mq4.          |
 //| Long at a target leverage while the last D1 close is above its   |
-//| SMA, flat otherwise. Never adds to a losing position.            |
+//| SMA, flat otherwise. Leverage shrinks while the market is        |
+//| volatile. Never adds to a losing position.                       |
 //+------------------------------------------------------------------+
-#property version   "1.00"
+#property version   "1.10"
 #property description "Long at a target leverage while the D1 close is above its SMA, flat otherwise."
 
 #include <Trade\Trade.mqh>
 
 // shortcut: no server-side stop loss, the position stays open while the terminal is offline; add one before running this anywhere that is not always on.
 
+#define VOL_DAYS 20                // daily changes in the volatility estimate
+
 input int    SmaPeriod = 200;      // Trend filter: SMA length in D1 bars
 input double Leverage  = 2.0;      // Target leverage of this chart (position value / account equity)
+input double VolLimit  = 0.20;     // Volatility per year above which leverage is scaled down (0 = off)
 input double Band      = 0.10;     // Rebalance only when leverage is off target by more than this fraction
 input int    Magic     = 20261120; // Identifies the positions of this EA (hedging accounts only)
 input int    Slippage  = 50;       // Maximum price deviation in points
@@ -22,9 +26,9 @@ bool   hedging;   // false: netting account, the symbol has a single position an
 
 int OnInit()
   {
-   if(SmaPeriod < 2 || Leverage <= 0 || Band < 0)
+   if(SmaPeriod < 2 || Leverage <= 0 || VolLimit < 0 || Band < 0)
       return(INIT_PARAMETERS_INCORRECT);
-   hedging = AccountInfoInteger(ACCOUNT_MARGIN_MODE) == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
+   hedging =AccountInfoInteger(ACCOUNT_MARGIN_MODE) == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
    trade.SetExpertMagicNumber((ulong)Magic);
    trade.SetDeviationInPoints((ulong)Slippage);
    trade.SetTypeFillingBySymbol(_Symbol);
@@ -61,6 +65,22 @@ double Sma()
       sum += close;
      }
    return(sum / SmaPeriod);
+  }
+
+// Annualised volatility of the last VOL_DAYS daily changes of completed D1 bars, -1 while the history is not loaded.
+double Volatility()
+  {
+   double sum = 0, squares = 0;
+   for(int i = 1; i <= VOL_DAYS; i++)
+     {
+      double today = iClose(_Symbol, PERIOD_D1, i), before = iClose(_Symbol, PERIOD_D1, i + 1);
+      if(today <= 0 || before <= 0)
+         return(-1);
+      double change = today / before - 1;
+      sum     += change;
+      squares += change * change;
+     }
+   return(MathSqrt(MathMax(squares - sum * sum / VOL_DAYS, 0) / (VOL_DAYS - 1) * 252));
   }
 
 // Rounds down to the broker's lot step.
@@ -144,19 +164,25 @@ void OnTick()
 
    double sma       = Sma();
    double last      = iClose(_Symbol, PERIOD_D1, 1);
+   double vol       = Volatility();
    double ask       = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
    double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
    double minLot    = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    // History or market data not loaded yet: wait, a zero here would otherwise read as a signal.
-   if(sma <= 0 || last <= 0 || ask <= 0 || tickValue <= 0 || tickSize <= 0 || minLot <= 0
+   if(sma <= 0 || last <= 0 || vol < 0 || ask <= 0 || tickValue <= 0 || tickSize <= 0 || minLot <= 0
       || SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP) <= 0 || SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX) <= 0)
       return;
 
    double have = OpenLots();
    double want = 0;               // lots that give the target leverage, 0 while the trend is down
    if(last > sma)
-      want = Leverage * AccountInfoDouble(ACCOUNT_EQUITY) / (ask / tickSize * tickValue);
+     {
+      double leverage = Leverage;
+      if(VolLimit > 0 && vol > VolLimit)
+         leverage *= VolLimit / vol;   // volatile market: proportionally less leverage
+      want = leverage * AccountInfoDouble(ACCOUNT_EQUITY) / (ask / tickSize * tickValue);
+     }
 
    bool ok = true;
    if(want <= 0)
@@ -176,5 +202,5 @@ void OnTick()
       doneBar = bar;
    else
       retryAt = TimeCurrent() + 60;
-   Comment("TrendLeverage: D1 close ", last, (last > sma ? " > " : " <= "), "SMA", SmaPeriod, " ", sma, ", lots ", OpenLots());
+   Comment("TrendLeverage: D1 close ", last, (last > sma ? " > " : " <= "), "SMA", SmaPeriod, " ", sma, ", volatility ", vol, ", lots ", OpenLots());
   }
