@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backtest of MQL4/Experts/TrendLeverage.mq4 on daily index closes, compared with buying and holding the index.
+"""Backtest of the TrendLeverage EA (MQL4/Experts, MQL5/Experts) on daily index closes, compared with buying and holding the index.
 
 Needs pandas and pyarrow, and three public data repositories cloned into ./data (commands in the README):
   us-market-data     SteelCerberus/us-market-data             S&P 500 since 1928 with dividends, T-bill rate

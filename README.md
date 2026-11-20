@@ -117,11 +117,13 @@ You can make an archive with the content from section "Prepare distribution with
 
 ## TrendLeverage EA
 
-`MQL4/Experts/TrendLeverage.mq4` is a small EA for index CFDs such as US500 or NAS100. Once per D1 bar it compares the last daily close with its 200-day SMA: above it, the EA holds a long position worth `Leverage` times the account equity (2 by default) and rebalances when leverage drifts more than 10 % off target; below it, the EA is flat. `Leverage` counts per chart, so two charts with 2 give 4 in total.
+`MQL4/Experts/TrendLeverage.mq4` is a small EA for index CFDs such as US500 or NAS100, and `MQL5/Experts/TrendLeverage.mq5` is the same EA for MetaTrader 5. Once per D1 bar it compares the last daily close with its 200-day SMA: above it, the EA holds a long position worth `Leverage` times the account equity (2 by default) and rebalances when leverage drifts more than 10 % off target; below it, the EA is flat. `Leverage` counts per chart, so two charts with 2 give 4 in total.
 
-To use it, copy the file to `MQL4/Experts/` of the terminal, compile it in MetaEditor and set `Expert=TrendLeverage` in `startup.ini` (drop `ExpertParameters` or point it to your own preset).
+To use it, copy the file to `MQL4/Experts/` (MT5: `MQL5/Experts/`) of the terminal and compile it in MetaEditor. For the MT4 container of this repository, also set `Expert=TrendLeverage` in `startup.ini` (drop `ExpertParameters` or point it to your own preset). The image starts the 32-bit MT4 terminal only, so the MT5 version needs a terminal of its own.
 
-**The EA has not been compiled or run in MetaTrader yet.** `test/run.sh` builds the real source against stubs of the MT4 API with g++ and checks the logic, and replays 41 years of Nasdaq-100 closes through it to confirm it matches the backtest. Test it in the Strategy Tester and on a demo account before it trades money. It sets no server-side stop loss, so a position stays open while the terminal is offline.
+An MT5 netting account keeps a single position per symbol. There the MT5 version manages everything on its symbol, including a position you opened by hand, so give it a symbol of its own. On hedging accounts, as in MT4, it touches only the positions carrying its magic number.
+
+**Neither version has been compiled or run in MetaTrader yet.** `test/run.sh` builds the real sources against stubs of the MT4 and MT5 APIs with g++ and checks the logic, for MT5 on a hedging and on a netting account, and replays 41 years of Nasdaq-100 closes through them to confirm they match the backtest. Test the EA in the Strategy Tester and on a demo account before it trades money. It sets no server-side stop loss, so a position stays open while the terminal is offline.
 
 ### Backtest
 
